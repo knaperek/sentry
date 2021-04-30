@@ -14,6 +14,7 @@ import {IconWarning} from 'app/icons';
 import {t} from 'app/locale';
 import space from 'app/styles/space';
 import {Organization, Project} from 'app/types';
+import {Theme} from 'app/utils/theme';
 import withApi from 'app/utils/withApi';
 
 import StepFour from './stepFour';
@@ -21,6 +22,15 @@ import StepOne from './stepOne';
 import StepThree from './stepThree';
 import StepTwo from './stepTwo';
 import {App, StepFourData, StepOneData, StepThreeData, StepTwoData} from './types';
+
+const steps = [
+  t('Enter your App Store Connect credentials'),
+  t('Enter your itunes credentials'),
+  t('Enter your authentication code'),
+  t('Choose your app'),
+];
+
+type Status = 'waiting' | 'active' | 'finished';
 
 type Props = Pick<ModalRenderProps, 'Body' | 'Footer' | 'closeModal'> & {
   api: Client;
@@ -37,15 +47,6 @@ function AppStoreConnect({Body, Footer, closeModal, api, orgSlug, projectSlug}: 
   const [useSms, setUseSms] = useState(false);
 
   const listRef = useRef<HTMLOListElement>(null);
-
-  const steps = [
-    t('Enter your App Store Connect credentials'),
-    t('Enter your itunes credentials'),
-    useSms
-      ? t('Enter the code you have received via Sms')
-      : t('Enter your iTunes authentication code'),
-    t('Choose your app'),
-  ];
 
   const [stepOneData, setStepOneData] = useState<StepOneData>({
     issuer: undefined,
@@ -65,12 +66,6 @@ function AppStoreConnect({Body, Footer, closeModal, api, orgSlug, projectSlug}: 
   const [stepFourData, setStepFourData] = useState<StepFourData>({
     app: undefined,
   });
-
-  useEffect(() => {
-    if (useSms) {
-      startSmsAuthentication();
-    }
-  }, [useSms]);
 
   useEffect(() => {
     calcStepContentHeights();
@@ -113,6 +108,20 @@ function AppStoreConnect({Body, Footer, closeModal, api, orgSlug, projectSlug}: 
       default:
         break;
     }
+  }
+
+  function handleSendVerificationCode() {
+    if (useSms) {
+      setUseSms(false);
+    }
+    startItunesAuthentication();
+  }
+
+  function handleSendSmsCode() {
+    if (!useSms) {
+      setUseSms(true);
+    }
+    startSmsAuthentication();
   }
 
   async function checkAppStoreConnectCredentials() {
@@ -256,8 +265,8 @@ function AppStoreConnect({Body, Footer, closeModal, api, orgSlug, projectSlug}: 
           <StepThree
             data={stepThreeData}
             onChange={setStepThreeData}
-            useSms={useSms}
-            onSendCodeViaSms={() => setUseSms(true)}
+            onSendVerificationCode={handleSendVerificationCode}
+            onSendCodeViaSms={handleSendSmsCode}
           />
         );
       case 3:
@@ -284,8 +293,7 @@ function AppStoreConnect({Body, Footer, closeModal, api, orgSlug, projectSlug}: 
             return (
               <StyledItem
                 key={step}
-                isWaiting={activeStep < index}
-                isActive={isActive}
+                status={activeStep < index ? 'waiting' : isActive ? 'active' : 'finished'}
                 height={stepHeights[index]}
               >
                 {steps[index]}
@@ -315,16 +323,26 @@ function AppStoreConnect({Body, Footer, closeModal, api, orgSlug, projectSlug}: 
 
 export default withApi(AppStoreConnect);
 
+const getItemHeight = (defineItemHeight: boolean, height: string) => {
+  if (defineItemHeight) {
+    return `
+      height: ${height};
+      padding-bottom: 0;
+    `;
+  }
+
+  return `padding-bottom: ${space(4)};`;
+};
+
 const StyledList = styled(List, {
   shouldForwardProp: p => p !== 'defineItemHeight',
 })<{defineItemHeight: boolean}>`
   grid-gap: 0;
   & > li {
     transition: height 300ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;
-    ${p => p.defineItemHeight && `height:32px;`}
+    ${p => getItemHeight(p.defineItemHeight, '32px')}
     :not(:last-child) {
-      ${p => p.defineItemHeight && `height:52px;`}
-      padding-bottom: ${space(4)};
+      ${p => getItemHeight(p.defineItemHeight, '52px')}
       :after {
         content: ' ';
         height: calc(100% - 24px - ${space(1)});
@@ -338,29 +356,33 @@ const StyledList = styled(List, {
   }
 `;
 
-const StyledItem = styled(ListItem)<{
-  isActive: boolean;
-  height?: number;
-  isWaiting?: boolean;
-}>`
-  ${p =>
-    p.isWaiting &&
-    `
-      &&:before {
-        background-color: ${p.theme.disabled};
-        color: ${p.theme.white};
-      }
-      color: ${p.theme.disabled};
-    `}
-  ${p =>
-    p.isActive &&
-    `
+const getStatusStyle = (theme: Theme, status: Status, height: number) => {
+  if (status === 'active') {
+    const heightStyle = height ? `height: ${height}px;` : '';
+    return `
       && {
         :not(:last-child) {
-          padding-bottom: ${space(3)};
-          height: ${p.height}px;
+          padding-bottom: ${space(1)};
+          ${heightStyle}
         }
-        height: ${p.height}px;
+        ${heightStyle}
       }
-    `}
+    `;
+  }
+
+  if (status === 'waiting') {
+    return `
+      &&:before {
+        background-color: ${theme.disabled};
+        color: ${theme.white};
+      }
+      color: ${theme.disabled};
+    `;
+  }
+
+  return '';
+};
+
+const StyledItem = styled(ListItem)<{status: Status; height: number}>`
+  ${p => getStatusStyle(p.theme, p.status, p.height)}
 `;
